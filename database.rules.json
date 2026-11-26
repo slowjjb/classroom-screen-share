@@ -1,0 +1,56 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "admins": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": false
+      }
+    },
+    "rooms": {
+      "$room": {
+        "meta": {
+          ".read": "auth != null",
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true",
+          ".validate": "newData.hasChildren(['owner','active','createdAt']) && newData.child('owner').val() === auth.uid && newData.child('active').isBoolean() && newData.child('createdAt').isNumber()"
+        },
+        "students": {
+          ".read": "auth != null && root.child('admins').child(auth.uid).val() === true && root.child('rooms').child($room).child('meta').child('owner').val() === auth.uid",
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true && root.child('rooms').child($room).child('meta').child('owner').val() === auth.uid",
+          "$uid": {
+            ".read": "auth != null && auth.uid === $uid",
+            ".write": "auth != null && auth.uid === $uid && root.child('rooms').child($room).child('meta').child('active').val() === true",
+            ".validate": "newData.hasChildren(['name','joinedAt','sessionId']) && newData.child('name').isString() && newData.child('name').val().length > 0 && newData.child('name').val().length <= 20 && newData.child('joinedAt').isNumber() && newData.child('sessionId').isString() && newData.child('sessionId').val().length <= 64"
+          }
+        },
+        "signals": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true && root.child('rooms').child($room).child('meta').child('owner').val() === auth.uid",
+          "$uid": {
+            ".read": "auth != null && (auth.uid === $uid || (root.child('admins').child(auth.uid).val() === true && root.child('rooms').child($room).child('meta').child('owner').val() === auth.uid))",
+            "offer": {
+              ".write": "auth != null && root.child('admins').child(auth.uid).val() === true && root.child('rooms').child($room).child('meta').child('owner').val() === auth.uid",
+              ".validate": "newData.hasChildren(['type','sdp','sessionId']) && newData.child('type').val() === 'offer' && newData.child('sdp').isString() && newData.child('sdp').val().length <= 200000 && newData.child('sessionId').isString()"
+            },
+            "answer": {
+              ".write": "auth != null && auth.uid === $uid && root.child('rooms').child($room).child('meta').child('active').val() === true",
+              ".validate": "newData.hasChildren(['type','sdp','sessionId']) && newData.child('type').val() === 'answer' && newData.child('sdp').isString() && newData.child('sdp').val().length <= 200000 && newData.child('sessionId').isString()"
+            },
+            "teacherCandidates": {
+              ".write": "auth != null && root.child('admins').child(auth.uid).val() === true && root.child('rooms').child($room).child('meta').child('owner').val() === auth.uid",
+              "$candidateId": {
+                ".validate": "newData.hasChildren(['candidate','sessionId']) && newData.child('candidate').isString() && newData.child('candidate').val().length <= 4096 && newData.child('sessionId').isString()"
+              }
+            },
+            "studentCandidates": {
+              ".write": "auth != null && auth.uid === $uid && root.child('rooms').child($room).child('meta').child('active').val() === true",
+              "$candidateId": {
+                ".validate": "newData.hasChildren(['candidate','sessionId']) && newData.child('candidate').isString() && newData.child('candidate').val().length <= 4096 && newData.child('sessionId').isString()"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
