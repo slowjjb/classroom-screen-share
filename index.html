@@ -507,6 +507,31 @@ async function verifyRememberedRoom(){
  }catch(err){showStudentIdentity(true);status('저장된 교실 확인 실패: '+err.message,true)}
 }
 if(role==='student')verifyRememberedRoom().catch(console.warn);
+function createStudentPeer(stream){
+ const connection=new RTCPeerConnection({iceServers});
+ connection.addTrack(stream.getVideoTracks()[0],stream);
+ connection.ondatachannel=event=>{
+  if(event.channel.label!=='teacher-quality')return;
+  event.channel.onmessage=message=>{
+   let data;try{data=JSON.parse(message.data)}catch{return}
+   if(data?.type==='ping'){
+    lastTeacherPing=Date.now();
+    if(event.channel.readyState==='open')try{event.channel.send(JSON.stringify({type:'pong'}))}catch{}
+   }
+   if(data?.type==='target-fps'&&[8,12,18].includes(data.fps)&&$('captureFps').value==='auto')scheduleQualityChange(data.fps);
+  };
+ };
+ connection.onicecandidate=e=>{
+  if(e.candidate&&studentOfferId&&studentPC===connection){
+   push(ref(db,roomPath('signals/'+studentUid+'/studentCandidates')),{...e.candidate.toJSON(),sessionId:studentSession,offerId:studentOfferId}).catch(()=>{});
+  }
+ };
+ connection.onconnectionstatechange=()=>{
+  if(studentPC!==connection)return;
+  status('화면 공유 중 · '+(connection.connectionState==='connected'?'교사와 연결됨':connection.connectionState));
+ };
+ return connection;
+}
 async function startSharing(){
  if(studentStream)return;
  const inputCode=$('joinRoom').value.trim().toUpperCase();
@@ -524,39 +549,36 @@ async function startSharing(){
   localStorage.setItem('classroom-share-name',name);
   localStorage.setItem('classroom-share-room',inputCode);
   showStudentIdentity();lastTeacherPing=Date.now();
-  const pc=new RTCPeerConnection({iceServers});studentPC=pc;studentRemoteReady=false;studentOfferId='';studentCandidates=[];
-  pc.addTrack(stream.getVideoTracks()[0],stream);
-  pc.ondatachannel=event=>{
-   if(event.channel.label!=='teacher-quality')return;
-   event.channel.onmessage=message=>{
-    let data;try{data=JSON.parse(message.data)}catch{return}
-    if(data?.type==='ping'){
-     lastTeacherPing=Date.now();
-     if(event.channel.readyState==='open')try{event.channel.send(JSON.stringify({type:'pong'}))}catch{}
-    }
-    if(data?.type==='target-fps'&&[8,12,18].includes(data.fps)&&$('captureFps').value==='auto'){
-     scheduleQualityChange(data.fps);
-    }
-   };
-  };
-  pc.onicecandidate=e=>{if(e.candidate&&studentOfferId)push(ref(db,roomPath('signals/'+studentUid+'/studentCandidates')),{...e.candidate.toJSON(),sessionId:studentSession,offerId:studentOfferId}).catch(()=>{})};
-  pc.onconnectionstatechange=()=>status('화면 공유 중 · '+(pc.connectionState==='connected'?'교사와 연결됨':pc.connectionState));
+  studentRemoteReady=false;studentOfferId='';studentCandidates=[];
+  studentPC=createStudentPeer(stream);
   studentWatch.push(onValue(ref(db,roomPath('meta/active')),snap=>{if(snap.val()===false)stopSharing('수업이 종료되어 화면 공유를 중단했습니다.')}));
   studentWatch.push(onValue(ref(db,roomPath('signals/'+studentUid+'/offer')),async snap=>{
    const o=snap.val();if(!o||o.sessionId!==studentSession||!o.offerId||studentOfferId===o.offerId)return;
    try{
+    if(studentOfferId){
+     const previous=studentPC;
+     studentPC=createStudentPeer(stream);
+     if(previous)previous.close();
+    }
     studentRemoteReady=false;studentOfferId=o.offerId;
-    // 교사가 새로고침했더라도 기존 화면 캡처 트랙을 보존하고 새 제안에 응답합니다.
-    await pc.setRemoteDescription({type:'offer',sdp:o.sdp});studentRemoteReady=true;
-    await flush(pc,studentCandidates.filter(c=>c.offerId===o.offerId));studentCandidates=[];
-    const answer=await pc.createAnswer();await pc.setLocalDescription(answer);
-    await set(ref(db,roomPath('signals/'+studentUid+'/answer')),{type:'answer',sdp:pc.localDescription.sdp,sessionId:studentSession,offerId:o.offerId});
-   }catch(e){status('영상 재협상 오류: '+e.message,true)}
+    const current=studentPC;
+    // 화면 공유 자체는 유지하고 새 WebRTC 연결만 만듭니다.
+    await current.setRemoteDescription({type:'offer',sdp:o.sdp});
+    if(studentPC!==current)return;
+    studentRemoteReady=true;
+    const pending=studentCandidates.filter(c=>c.offerId===o.offerId);
+    studentCandidates=[];await flush(current,pending);
+    const answer=await current.createAnswer();await current.setLocalDescription(answer);
+    if(studentPC!==current)return;
+    await set(ref(db,roomPath('signals/'+studentUid+'/answer')),{type:'answer',sdp:current.localDescription.sdp,sessionId:studentSession,offerId:o.offerId});
+   }catch(e){status('영상 재연결 오류: '+e.message,true)}
   }));
   studentWatch.push(onChildAdded(ref(db,roomPath('signals/'+studentUid+'/teacherCandidates')),snap=>{
    const c=snap.val();if(c?.sessionId!==studentSession)return;
-   if(!studentRemoteReady||!studentOfferId){studentCandidates.push(c);return}
-   if(c.offerId===studentOfferId)pc.addIceCandidate(c).catch(()=>{});
+   if(!studentRemoteReady||!studentOfferId||c.offerId!==studentOfferId){
+    studentCandidates.push(c);return;
+   }
+   studentPC?.addIceCandidate(c).catch(()=>{});
   }));
   studentRef=ref(db,roomPath('students/'+studentUid));
   await onDisconnect(studentRef).remove();
