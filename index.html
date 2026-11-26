@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>교실 화면 공유 v1.2</title>
+<title>교실 화면 공유 v1.3</title>
 <style>
 :root{color-scheme:dark;font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif}
 *{box-sizing:border-box}body{margin:0;background:#0b0e13;color:#f1f5f9}
@@ -29,6 +29,11 @@ button:focus-visible,input:focus-visible{outline:2px solid #93c5fd;outline-offse
 .tilefooter{padding:7px 10px;display:flex;align-items:center;justify-content:space-between;gap:5px;font-size:13px}
 .tilefooter .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tilefooter .state{font-size:11px;color:#9ca3af}
+.tilemetrics{padding:0 10px 8px;color:#bfdbfe;font-size:12px;display:flex;flex-wrap:wrap;gap:4px 10px;font-variant-numeric:tabular-nums}
+.tilemetrics .rate{font-weight:700}
+#trafficSummary{padding:10px 12px;background:#152235;border:1px solid #374763;border-radius:9px;margin:10px 0 12px;font-size:13px;color:#dbeafe;font-variant-numeric:tabular-nums}
+#trafficSummary strong{color:#93c5fd}
+#grid.mode1 .tilemetrics{font-size:15px;padding:10px 14px}
 #grid.mode1 .tile{max-width:100%}
 #grid.mode1 video{max-height:calc(100vh - 235px)}
 [hidden]{display:none!important}.help{background:#0f2630;padding:12px;border-radius:8px;color:#cdebef;font-size:13px;line-height:1.6}
@@ -38,7 +43,7 @@ body.share-active .panel{background:white;color:#0f172a;border-color:#10b981}
 </style>
 </head>
 <body>
-<header><strong>🖥️ 교실 화면 공유 <small>v1.2 · 화면별 자동 프레임률</small></strong>
+<header><strong>🖥️ 교실 화면 공유 <small>v1.3 · 실시간 FPS·전송량 진단</small></strong>
 <div class="row"><span id="headerState" class="muted">연결 대기</span><button id="switchMode">교사 / 학생 전환</button></div></header>
 <main>
 <section id="teacherLogin" class="panel">
@@ -57,7 +62,9 @@ body.share-active .panel{background:white;color:#0f172a;border-color:#10b981}
  <button class="layout primary" data-mode="25">25분할</button><button class="layout" data-mode="4">4분할</button><button class="layout" data-mode="1">1명 확대</button>
  <span class="muted">자동 전송 목표: 25분할 8fps / 4분할 12fps / 1명 확대 18fps</span>
 </div>
-<div id="grid"></div><p class="muted" id="diagnostic">WebRTC 직접 연결 시험 · TURN 서버를 사용하지 않습니다.</p>
+<div id="trafficSummary" role="status" aria-live="off">수신 통계 대기 중 · 3초마다 자동 갱신</div>
+<div id="grid"></div>
+<p class="muted" id="diagnostic">FPS는 학생 영상의 실제 디코딩 프레임을 기준으로 계산하며 화면 변화가 없으면 낮게 나올 수 있습니다. Mbps는 교사 PC에서 수신한 영상의 순간 전송량입니다. 수치는 Firebase 사용량이 아닙니다. TURN 중계 없이 WebRTC 직접 연결만 시험합니다.</p>
 </section>
 <section id="studentMain" class="panel" hidden>
 <h2>학생 화면 공유</h2>
@@ -89,6 +96,7 @@ const iceServers=[{urls:'stun:stun.l.google.com:19302'}]; // 직접 연결 시�
 let role=new URLSearchParams(location.search).get('role')==='student'?'student':'teacher';
 let room='', teacherUid='', studentUid='',studentStream=null,studentPC=null,studentSession='',studentRef=null;
 let selectedStudent='', layout='25';
+let statsTimer=null,statsPolling=false;
 let teacherWatch=[], studentWatch=[], studentCandidates=[], studentRemoteReady=false;
 const peers=new Map(), tiles=new Map();
 function status(s,bad=false){$('status').textContent=s;$('status').className=bad?'error':''; $('headerState').textContent=s.slice(0,55);}
@@ -96,7 +104,7 @@ function show(roleNow){role=roleNow;$('teacherLogin').hidden=role!=='teacher';$(
 function code(){let b=crypto.getRandomValues(new Uint8Array(7));return Array.from(b,v=>alphabet[v%alphabet.length]).join('')}
 function roomPath(s=''){return 'rooms/'+room+(s?'/'+s:'')}
 function unregister(list){for(const fn of list.splice(0))try{fn()}catch{}}
-function clearPeers(){for(const v of peers.values()){unregister(v.unsubs);v.pc.close()}peers.clear();tiles.clear();$('grid').replaceChildren()}
+function clearPeers(){for(const v of peers.values()){unregister(v.unsubs);v.pc.close()}peers.clear();tiles.clear();$('grid').replaceChildren();updateSummary()}
 function visibleTiles(){
  let entries=Array.from(tiles.entries());
  if(layout==='1'){const found=entries.find(e=>e[0]===selectedStudent)||entries[0];return found?[found]:[]}
@@ -138,6 +146,7 @@ async function startRoom(){
  try{
   await set(ref(db,roomPath('meta')),{owner:teacherUid,active:true,createdAt:Date.now()});
   $('roomCode').textContent=room;selectedStudent='';updateLayout('25');
+  startStatsPolling();
   teacherWatch.push(onChildAdded(ref(db,roomPath('students')),snap=>teacherStudentJoined(snap.key,snap.val()).catch(e=>status('학생 연결 오류: '+e.message,true)),e=>status('학생 목록 읽기 거부: '+e.message,true)));
   teacherWatch.push(onChildRemoved(ref(db,roomPath('students')),snap=>removeTeacherStudent(snap.key)));
   status('교실 개설 완료 · 학생에게 코드를 알려주세요.');
@@ -147,7 +156,7 @@ $('newRoom').addEventListener('click',startRoom);
 $('copyLink').addEventListener('click',async()=>{if(!room)return status('먼저 교실을 만드세요.',true);const url=new URL(location.href);url.searchParams.set('role','student');url.searchParams.set('room',room);try{await navigator.clipboard.writeText(url.href);status('학생용 주소를 복사했습니다.')}catch{status('주소 복사 실패: '+url.href,true)}});
 async function finishRoom(){
  if(!room)return;
- const old=room;unregister(teacherWatch);clearPeers();room='';
+ const old=room;stopStatsPolling();unregister(teacherWatch);clearPeers();room='';
  try{await set(ref(db,'rooms/'+old+'/meta/active'),false);await remove(ref(db,'rooms/'+old+'/students'));await remove(ref(db,'rooms/'+old+'/signals'))}catch(e){status('종료 처리 중 오류: '+e.message,true)}
  $('roomCode').textContent='-------';$('counts').textContent='';status('교실을 종료했습니다.');
 }
@@ -158,9 +167,12 @@ function makeTile(uid,name){
  const footer=document.createElement('div');footer.className='tilefooter';
  const span=document.createElement('span');span.className='name';span.textContent=name;
  const conn=document.createElement('span');conn.className='state';conn.textContent='연결 중';
- footer.append(span,conn);tile.append(video,footer);
+ const metrics=document.createElement('div');metrics.className='tilemetrics';
+ const rate=document.createElement('span');rate.className='rate';rate.textContent='FPS — · — Mbps';
+ const route=document.createElement('span');route.textContent='경로 확인 중';
+ metrics.append(rate,route);footer.append(span,conn);tile.append(video,footer,metrics);
  tile.addEventListener('click',()=>{selectedStudent=uid;updateLayout('1')});
- tiles.set(uid,tile);render();return {tile,video,conn}
+ tiles.set(uid,tile);render();return {tile,video,conn,rate,route}
 }
 function applyCandidate(pc,queue,item,ready){
  if(!item||!item.candidate)return;
@@ -177,11 +189,15 @@ async function teacherStudentJoined(uid,entry){
  const queue=[],unsubs=[];
  const control=pc.createDataChannel('teacher-quality'); // 영상 연결 자체로 작은 제어 명령을 전달
  const ui=makeTile(uid,entry.name||'학생');
- peers.set(uid,{pc,unsubs,ui,sid,control,lastFps:null});
+ peers.set(uid,{pc,unsubs,ui,sid,control,lastFps:null,prevInbound:null,measurement:null});
  control.onopen=()=>updatePeerRates();
  pc.addTransceiver('video',{direction:'recvonly'});
  pc.ontrack=e=>{ui.video.srcObject=e.streams[0];ui.video.play().catch(()=>{})};
- pc.onconnectionstatechange=()=>{ui.conn.textContent=pc.connectionState==='connected'?'● 연결됨':pc.connectionState; if(pc.connectionState==='connected')diagnose(pc,ui.conn)};
+ pc.onconnectionstatechange=()=>{
+  ui.conn.textContent=pc.connectionState==='connected'?'● 연결됨':pc.connectionState;
+  if(pc.connectionState==='connected'){samplePeer(uid,peers.get(uid)).then(updateSummary).catch(()=>{})}
+  else{const current=peers.get(uid);if(current){current.prevInbound=null;current.measurement=null}ui.rate.textContent='FPS — · — Mbps';ui.route.textContent='경로 확인 중';updateSummary()}
+ };
  pc.onicecandidate=e=>{if(e.candidate)push(ref(db,path+'/teacherCandidates'),{...e.candidate.toJSON(),sessionId:sid}).catch(()=>{})};
  unsubs.push(onValue(ref(db,path+'/answer'),async snap=>{
   const answer=snap.val();if(!answer||answer.sessionId!==sid||pc.remoteDescription)return;
@@ -191,16 +207,105 @@ async function teacherStudentJoined(uid,entry){
  try{const offer=await pc.createOffer();await pc.setLocalDescription(offer);await set(ref(db,path+'/offer'),{type:'offer',sdp:pc.localDescription.sdp,sessionId:sid})}
  catch(e){ui.conn.textContent='연결 실패';status('WebRTC 연결 실패: '+e.message,true)}
 }
-function removeTeacherStudent(uid){const item=peers.get(uid);if(item){unregister(item.unsubs);item.pc.close();peers.delete(uid)}tiles.delete(uid);if(selectedStudent===uid)selectedStudent='';render()}
-async function diagnose(pc,el){
- try{
-  const stats=await pc.getStats();let pair=null;stats.forEach(s=>{if(s.type==='transport'&&s.selectedCandidatePairId)pair=stats.get(s.selectedCandidatePairId)});
-  if(!pair)stats.forEach(s=>{if(s.type==='candidate-pair'&&s.nominated&&s.state==='succeeded')pair=s});
-  if(pair){const local=stats.get(pair.localCandidateId),remote=stats.get(pair.remoteCandidateId);
-   const relay=local?.candidateType==='relay'||remote?.candidateType==='relay';el.textContent=relay?'TURN 중계':'직접 연결 추정';
+function removeTeacherStudent(uid){const item=peers.get(uid);if(item){unregister(item.unsubs);item.pc.close();peers.delete(uid)}tiles.delete(uid);if(selectedStudent===uid)selectedStudent='';render();updateSummary()}
+// 수신 통계는 교사 브라우저 안에서만 측정합니다. Firebase에 업로드하지 않습니다.
+function connectionRoute(report){
+ let pair=null;
+ for(const stat of report.values()){
+  if(stat.type==='transport'&&stat.selectedCandidatePairId){
+   const p=report.get(stat.selectedCandidatePairId);
+   if(p&&p.state==='succeeded'){pair=p;break}
   }
- }catch{}
+ }
+ if(!pair){
+  for(const stat of report.values()){
+   if(stat.type==='candidate-pair'&&stat.state==='succeeded'&&stat.nominated){pair=stat;break}
+  }
+ }
+ if(!pair)return '경로 확인 중';
+ const local=report.get(pair.localCandidateId),remote=report.get(pair.remoteCandidateId);
+ if(!local||!remote)return '경로 미확인';
+ if(local.candidateType==='relay'||remote.candidateType==='relay')return 'TURN 중계';
+ if(local.candidateType==='host'&&remote.candidateType==='host')return '직접 연결 (LAN 후보)';
+ return '직접 연결 (P2P 후보)';
 }
+function readVideoInbound(report){
+ // 학생별 수신 비디오 한 개를 원칙으로 함. 재협상 시 최신 inbound 통계를 사용.
+ const videos=Array.from(report.values()).filter(v=>v.type==='inbound-rtp'&&!v.isRemote&&(v.kind==='video'||v.mediaType==='video'));
+ if(!videos.length)return null;
+ return videos.find(v=>v.framesDecoded!==undefined&&v.bytesReceived!==undefined)||videos[0];
+}
+function measuredRate(current,previous){
+ if(!previous||previous.id!==current.id)return {fps:null,mbps:null};
+ const elapsed=(current.timestamp-previous.timestamp)/1000;
+ if(!(elapsed>0.2))return {fps:null,mbps:null};
+ const getDelta=(now,before)=>Number.isFinite(now)&&Number.isFinite(before)&&now>=before?now-before:null;
+ const bytes=getDelta(current.bytesReceived,previous.bytesReceived);
+ const frames=getDelta(current.framesDecoded,previous.framesDecoded);
+ const fallback=getDelta(current.framesReceived,previous.framesReceived);
+ const frameDelta=frames??fallback;
+ const fps=frameDelta===null?(Number.isFinite(current.framesPerSecond)?current.framesPerSecond:null):frameDelta/elapsed;
+ const mbps=bytes===null?null:(bytes*8/elapsed/1e6);
+ return {fps,mbps};
+}
+async function samplePeer(uid,item){
+ if(!item||item.pc.connectionState!=='connected')return;
+ const report=await item.pc.getStats();
+ if(peers.get(uid)!==item)return;
+ const inbound=readVideoInbound(report);
+ const route=connectionRoute(report);
+ if(!inbound){
+  item.ui.rate.textContent='영상 수신 통계 대기';
+  item.ui.route.textContent=route;
+  return;
+ }
+ const current={id:inbound.id,timestamp:inbound.timestamp,bytesReceived:inbound.bytesReceived,framesDecoded:inbound.framesDecoded,framesReceived:inbound.framesReceived,framesPerSecond:inbound.framesPerSecond};
+ const rate=measuredRate(current,item.prevInbound);
+ item.prevInbound=current;
+ const bytes=Number.isFinite(current.bytesReceived)?current.bytesReceived:0;
+ item.measurement={fps:rate.fps,mbps:rate.mbps,bytes,route};
+ const fpsText=rate.fps===null?'—':rate.fps.toFixed(1);
+ const speedText=rate.mbps===null?'—':rate.mbps.toFixed(2);
+ item.ui.rate.textContent=fpsText+' fps · '+speedText+' Mbps';
+ item.ui.route.textContent=route;
+}
+function updateSummary(){
+ const values=Array.from(peers.values()).filter(p=>p.pc.connectionState==='connected'&&p.measurement).map(p=>p.measurement);
+ const speeds=values.filter(m=>Number.isFinite(m.mbps));
+ const frameRates=values.filter(m=>Number.isFinite(m.fps));
+ const totalMbps=speeds.reduce((n,m)=>n+m.mbps,0);
+ const averageFps=frameRates.length?frameRates.reduce((n,m)=>n+m.fps,0)/frameRates.length:null;
+ const totalBytes=values.reduce((n,m)=>n+m.bytes,0);
+ const totalMB=totalBytes/1e6;
+ const routes={direct:values.filter(m=>m.route.startsWith('직접 연결')).length,relay:values.filter(m=>m.route==='TURN 중계').length};
+ $('trafficSummary').textContent='연결 '+values.length+'명 · 평균 수신 '+
+ (averageFps===null?'측정 중':averageFps.toFixed(1)+' fps')+
+ ' · 전체 '+(speeds.length?totalMbps.toFixed(2)+' Mbps':'측정 중')+
+ ' · 누적 영상 수신 약 '+totalMB.toFixed(1)+' MB'+
+ ' · 직접 '+routes.direct+'명 / 중계 '+routes.relay+'명'+
+ ' · 3초 간격 갱신';
+}
+async function pollAllStats(){
+ if(statsPolling||!room||role!=='teacher'||document.hidden)return;
+ statsPolling=true;
+ try{
+  const entries=Array.from(peers.entries());
+  await Promise.all(entries.map(([uid,item])=>samplePeer(uid,item).catch(err=>console.warn('통계 측정 실패',uid,err))));
+  updateSummary();
+ }finally{statsPolling=false}
+}
+function startStatsPolling(){
+ stopStatsPolling();
+ $('trafficSummary').textContent='영상 수신 통계 측정 대기 중 · 최초 값은 몇 초 후 표시됩니다.';
+ statsTimer=setInterval(()=>{pollAllStats().catch(console.warn)},3000);
+ pollAllStats().catch(console.warn);
+}
+function stopStatsPolling(){
+ if(statsTimer){clearInterval(statsTimer);statsTimer=null}
+ $('trafficSummary').textContent='수신 통계 대기 중 · 3초마다 자동 갱신';
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&statsTimer)pollAllStats().catch(console.warn)});
+
 let qualityChange=Promise.resolve();
 function scheduleQualityChange(fps){
  qualityChange=qualityChange.catch(()=>{}).then(async()=>{
