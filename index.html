@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>교실 화면 공유 v1</title>
+<title>교실 화면 공유 v1.1</title>
 <style>
 :root{color-scheme:dark;font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif}
 *{box-sizing:border-box}body{margin:0;background:#0b0e13;color:#f1f5f9}
@@ -13,7 +13,7 @@ header strong{font-size:18px;letter-spacing:.5px}small,.muted{color:#a7b5ca}
 main{max-width:1200px;margin:24px auto;padding:0 16px}
 .panel{max-width:480px;margin:30px auto;background:#182130;border:1px solid #3b4b63;border-radius:16px;padding:24px}
 label{display:block;margin:14px 0 7px;font-weight:600;font-size:14px}
-input{width:100%;border:1px solid #52637b;background:#0f1724;color:white;border-radius:8px;padding:12px;font-size:16px}
+input,select{width:100%;border:1px solid #52637b;background:#0f1724;color:white;border-radius:8px;padding:12px;font-size:16px}
 button,.btn{cursor:pointer;border:1px solid #64748b;border-radius:9px;padding:10px 14px;background:#273449;color:white;font-weight:700}
 button:hover{filter:brightness(1.15)}button:disabled{opacity:.5;cursor:default}
 .primary{background:#2563eb;border-color:#2563eb}.good{background:#15803d;border-color:#15803d}.danger{background:#b91c1c;border-color:#b91c1c}
@@ -38,7 +38,7 @@ body.share-active .panel{background:white;color:#0f172a;border-color:#10b981}
 </style>
 </head>
 <body>
-<header><strong>🖥️ 교실 화면 공유 <small>v1 · 무료 직접연결 시험</small></strong>
+<header><strong>🖥️ 교실 화면 공유 <small>v1.1 · 프레임률 개선 시험</small></strong>
 <div class="row"><span id="headerState" class="muted">연결 대기</span><button id="switchMode">교사 / 학생 전환</button></div></header>
 <main>
 <section id="teacherLogin" class="panel">
@@ -63,7 +63,7 @@ body.share-active .panel{background:white;color:#0f172a;border-color:#10b981}
 <h2>학생 화면 공유</h2>
 <label for="joinRoom">교실 코드</label><input id="joinRoom" maxlength="12" spellcheck="false" placeholder="교실 코드 입력">
 <label for="studentName">이름</label><input id="studentName" maxlength="20" placeholder="이름 또는 시험용 별명">
-<p><button id="startShare" class="good">화면 선택하고 공유 시작</button> <button id="stopShare" class="danger" hidden>공유 중지</button></p>
+<label for="captureFps">화면 움직임 (공유 시작 전에 선택)</label><select id="captureFps"><option value="4">절약 · 최대 4fps (느리지만 네트워크 절약)</option><option value="12" selected>표준 · 최대 12fps (추천)</option><option value="18">부드럽게 · 최대 18fps (1~4명 시험용)</option></select><p class="muted" style="font-size:12px">실제 프레임률은 크롬북 성능과 학교 와이파이 상태에 따라 달라집니다. 20명 이상 시험할 때는 표준 또는 절약을 권장합니다.</p><p><button id="startShare" class="good">화면 선택하고 공유 시작</button> <button id="stopShare" class="danger" hidden>공유 중지</button></p>
 <p id="shareNotice" class="help" hidden>● 내 화면 공유 중 · 선생님이 보고 있습니다. 공유 중지를 누르거나 Chrome의 공유 중지 버튼을 누르면 전송이 끝납니다.</p>
 <p class="help">화면 공유 선택창에서 ‘전체 화면’을 선택해야 다른 탭의 활동도 보입니다. Chrome이 매번 학생에게 공유 권한을 요청합니다. 영상은 데이터베이스에 저장하지 않습니다.</p>
 </section>
@@ -189,7 +189,8 @@ async function startSharing(){
  let stream=null;
  try{
   // 반드시 사용자가 직접 클릭한 이벤트 흐름에서 화면 선택창을 엽니다.
-  stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:4,width:{ideal:1280},height:{ideal:720}},audio:false});
+  const targetFps=Number($('captureFps').value)||12;
+  stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:targetFps,max:targetFps},width:{ideal:1280},height:{ideal:720}},audio:false});
   const user=(await signInAnonymously(auth)).user;
   const meta=(await get(ref(db,'rooms/'+inputCode+'/meta'))).val();
   if(!meta?.active)throw new Error('교실이 없거나 종료되었습니다.');
@@ -213,7 +214,7 @@ async function startSharing(){
   await onDisconnect(studentRef).remove();
   await set(studentRef,{name,joinedAt:Date.now(),sessionId:studentSession});
   stream.getVideoTracks()[0].addEventListener('ended',()=>stopSharing('Chrome에서 화면 공유가 중지되었습니다.'),{once:true});
-  $('startShare').hidden=true;$('stopShare').hidden=false;$('shareNotice').hidden=false;document.body.classList.add('share-active');
+  $('startShare').hidden=true;$('stopShare').hidden=false;$('shareNotice').hidden=false;$('captureFps').disabled=true;document.body.classList.add('share-active');
   status('화면 공유 중 · 학생 본인도 언제든 중지할 수 있습니다.');
  }catch(e){
   if(stream)stream.getTracks().forEach(t=>t.stop());
@@ -227,7 +228,7 @@ async function stopSharing(message='화면 공유를 중지했습니다.'){
  const stream=studentStream;studentStream=null;if(stream)stream.getTracks().forEach(t=>t.stop());
  if(refToRemove)try{await remove(refToRemove)}catch{}
  room='';studentUid='';studentSession='';studentRemoteReady=false;studentCandidates=[];
- $('startShare').hidden=false;$('stopShare').hidden=true;$('shareNotice').hidden=true;document.body.classList.remove('share-active');status(message);
+ $('startShare').hidden=false;$('stopShare').hidden=true;$('shareNotice').hidden=true;$('captureFps').disabled=false;document.body.classList.remove('share-active');status(message);
 }
 $('startShare').addEventListener('click',startSharing);
 $('stopShare').addEventListener('click',()=>stopSharing());
