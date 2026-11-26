@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>교실 화면 공유 v1</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif}
+*{box-sizing:border-box}body{margin:0;background:#0b0e13;color:#f1f5f9}
+header{padding:13px 20px;background:#161c27;border-bottom:1px solid #334155;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+header strong{font-size:18px;letter-spacing:.5px}small,.muted{color:#a7b5ca}
+main{max-width:1200px;margin:24px auto;padding:0 16px}
+.panel{max-width:480px;margin:30px auto;background:#182130;border:1px solid #3b4b63;border-radius:16px;padding:24px}
+label{display:block;margin:14px 0 7px;font-weight:600;font-size:14px}
+input{width:100%;border:1px solid #52637b;background:#0f1724;color:white;border-radius:8px;padding:12px;font-size:16px}
+button,.btn{cursor:pointer;border:1px solid #64748b;border-radius:9px;padding:10px 14px;background:#273449;color:white;font-weight:700}
+button:hover{filter:brightness(1.15)}button:disabled{opacity:.5;cursor:default}
+.primary{background:#2563eb;border-color:#2563eb}.good{background:#15803d;border-color:#15803d}.danger{background:#b91c1c;border-color:#b91c1c}
+button:focus-visible,input:focus-visible{outline:2px solid #93c5fd;outline-offset:2px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.space{justify-content:space-between}
+.code{font:700 33px ui-monospace,monospace;letter-spacing:6px;color:#a5d2ff}
+#status{white-space:pre-wrap;line-height:1.5;min-height:20px;color:#bfdbfe}#status.error{color:#fca5a5}
+#grid{display:grid;gap:8px;grid-template-columns:repeat(5,minmax(0,1fr));align-items:start}
+#grid.mode4{grid-template-columns:repeat(2,minmax(0,1fr))}
+#grid.mode1{grid-template-columns:minmax(0,1fr)}
+.tile{border:1px solid #42516b;background:#111827;border-radius:10px;overflow:hidden;min-width:0;cursor:pointer}
+.tile.selected{border:2px solid #3b82f6}.tile video{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#000}
+.tilefooter{padding:7px 10px;display:flex;align-items:center;justify-content:space-between;gap:5px;font-size:13px}
+.tilefooter .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tilefooter .state{font-size:11px;color:#9ca3af}
+#grid.mode1 .tile{max-width:100%}
+#grid.mode1 video{max-height:calc(100vh - 235px)}
+[hidden]{display:none!important}.help{background:#0f2630;padding:12px;border-radius:8px;color:#cdebef;font-size:13px;line-height:1.6}
+body.share-active{background:#d1fae5;color:#0f172a}body.share-active header{background:#065f46;color:white}
+body.share-active .panel{background:white;color:#0f172a;border-color:#10b981}
+@media(max-width:650px){#grid{grid-template-columns:repeat(2,minmax(0,1fr))}#grid.mode4{grid-template-columns:repeat(2,minmax(0,1fr))}header{padding:12px}}
+</style>
+</head>
+<body>
+<header><strong>🖥️ 교실 화면 공유 <small>v1 · 무료 직접연결 시험</small></strong>
+<div class="row"><span id="headerState" class="muted">연결 대기</span><button id="switchMode">교사 / 학생 전환</button></div></header>
+<main>
+<section id="teacherLogin" class="panel">
+<h2>교사 로그인</h2><p class="muted">Firebase에 만든 교사 계정으로 로그인합니다.</p>
+<label for="email">교사 이메일</label><input id="email" type="email" autocomplete="username">
+<label for="password">비밀번호</label><input id="password" type="password" autocomplete="current-password">
+<p><button id="login" class="primary">교사 로그인</button></p>
+<p class="help">로그인 후에도 교사 UID가 Firebase의 admins 목록에 등록되어 있어야 교실을 만들 수 있습니다. DB 규칙이 잠겨 있으면 연결이 거부되는 것이 정상입니다.</p>
+</section>
+<section id="teacherMain" hidden>
+<div class="row space" style="margin-bottom:12px">
+ <div><span class="muted">교실 코드 </span><span id="roomCode" class="code">-------</span><span id="counts" class="muted"></span></div>
+ <div class="row"><button id="copyLink">학생 주소 복사</button><button id="newRoom" class="primary">새 교실</button><button id="endRoom" class="danger">전체 종료</button></div>
+</div>
+<div class="row" style="margin-bottom:12px">
+ <button class="layout primary" data-mode="25">25분할</button><button class="layout" data-mode="4">4분할</button><button class="layout" data-mode="1">1명 확대</button>
+ <span class="muted">학생 화면을 클릭하면 1명 확대</span>
+</div>
+<div id="grid"></div><p class="muted" id="diagnostic">WebRTC 직접 연결 시험 · TURN 서버를 사용하지 않습니다.</p>
+</section>
+<section id="studentMain" class="panel" hidden>
+<h2>학생 화면 공유</h2>
+<label for="joinRoom">교실 코드</label><input id="joinRoom" maxlength="12" spellcheck="false" placeholder="교실 코드 입력">
+<label for="studentName">이름</label><input id="studentName" maxlength="20" placeholder="이름 또는 시험용 별명">
+<p><button id="startShare" class="good">화면 선택하고 공유 시작</button> <button id="stopShare" class="danger" hidden>공유 중지</button></p>
+<p id="shareNotice" class="help" hidden>● 내 화면 공유 중 · 선생님이 보고 있습니다. 공유 중지를 누르거나 Chrome의 공유 중지 버튼을 누르면 전송이 끝납니다.</p>
+<p class="help">화면 공유 선택창에서 ‘전체 화면’을 선택해야 다른 탭의 활동도 보입니다. Chrome이 매번 학생에게 공유 권한을 요청합니다. 영상은 데이터베이스에 저장하지 않습니다.</p>
+</section>
+<p id="status" role="status" aria-live="polite"></p>
+</main>
+<script type="module">
+import {initializeApp} from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js';
+import {getAuth, signInWithEmailAndPassword, signInAnonymously} from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js';
+import {getDatabase,ref,get,set,remove,push,onValue,onChildAdded,onChildRemoved,onDisconnect} from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-database.js';
+const firebaseConfig={
+ apiKey:'AIzaSyBpxlP69Zn_Xz5q2aJ5laG2yK3pTE0hXtQ',
+ authDomain:'classroom-screen-share.firebaseapp.com',
+ databaseURL:'https://classroom-screen-share-default-rtdb.asia-southeast1.firebasedatabase.app',
+ projectId:'classroom-screen-share',
+ storageBucket:'classroom-screen-share.firebasestorage.app',
+ messagingSenderId:'265510388944',
+ appId:'1:265510388944:web:2bc1d2066fad664ca48ad5'
+};
+const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getDatabase(app);
+const $=id=>document.getElementById(id);
+const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const iceServers=[{urls:'stun:stun.l.google.com:19302'}]; // 직접 연결 시험; TURN 중계 없음
+let role=new URLSearchParams(location.search).get('role')==='student'?'student':'teacher';
+let room='', teacherUid='', studentUid='',studentStream=null,studentPC=null,studentSession='',studentRef=null;
+let selectedStudent='', layout='25';
+let teacherWatch=[], studentWatch=[], studentCandidates=[], studentRemoteReady=false;
+const peers=new Map(), tiles=new Map();
+function status(s,bad=false){$('status').textContent=s;$('status').className=bad?'error':''; $('headerState').textContent=s.slice(0,55);}
+function show(roleNow){role=roleNow;$('teacherLogin').hidden=role!=='teacher';$('teacherMain').hidden=true;$('studentMain').hidden=role!=='student';status('준비 완료');}
+function code(){let b=crypto.getRandomValues(new Uint8Array(7));return Array.from(b,v=>alphabet[v%alphabet.length]).join('')}
+function roomPath(s=''){return 'rooms/'+room+(s?'/'+s:'')}
+function unregister(list){for(const fn of list.splice(0))try{fn()}catch{}}
+function clearPeers(){for(const v of peers.values()){unregister(v.unsubs);v.pc.close()}peers.clear();tiles.clear();$('grid').replaceChildren()}
+function render(){let entries=Array.from(tiles.entries());if(layout==='1'){let x=entries.find(e=>e[0]===selectedStudent)||entries[0];entries=x?[x]:[]}
+if(layout==='4'){const pos=entries.findIndex(e=>e[0]===selectedStudent);if(pos>=4){entries=[entries[pos],...entries.filter((e,i)=>i!==pos).slice(0,3)]}else entries=entries.slice(0,4)}
+$('grid').className=layout==='25'?'':'mode'+layout;
+$('grid').replaceChildren(...entries.map(e=>e[1]));$('counts').textContent=' · '+tiles.size+'명 접속'}
+function updateLayout(l){layout=l;document.querySelectorAll('.layout').forEach(b=>b.classList.toggle('primary',b.dataset.mode===l));render()}
+document.querySelectorAll('.layout').forEach(b=>b.addEventListener('click',()=>updateLayout(b.dataset.mode)));
+$('switchMode').addEventListener('click',()=>{if(room||studentStream){status('먼저 공유/교실을 종료해 주세요.',true);return}const next=role==='teacher'?'student':'teacher';const url=new URL(location.href);url.searchParams.set('role',next);url.searchParams.delete('room');location.href=url.href});
+$('login').addEventListener('click',async()=>{
+ try{
+  const user=(await signInWithEmailAndPassword(auth,$('email').value.trim(),$('password').value)).user;
+  const isAdmin=(await get(ref(db,'admins/'+user.uid))).val()===true;
+  if(!isAdmin){status('로그인은 성공했지만 교사 권한이 없습니다. Firebase 데이터 /admins/'+user.uid+' 를 true로 등록하고 보안 규칙을 적용하세요.',true);return}
+  teacherUid=user.uid;$('teacherLogin').hidden=true;$('teacherMain').hidden=false;status('교사 인증 완료 · 새 교실을 눌러 주세요.');
+ }catch(err){status('교사 로그인 오류: '+err.message,true)}
+});
+async function startRoom(){
+ if(!teacherUid)return;
+ if(room)await finishRoom();
+ room=code();
+ try{
+  await set(ref(db,roomPath('meta')),{owner:teacherUid,active:true,createdAt:Date.now()});
+  $('roomCode').textContent=room;selectedStudent='';updateLayout('25');
+  teacherWatch.push(onChildAdded(ref(db,roomPath('students')),snap=>teacherStudentJoined(snap.key,snap.val()).catch(e=>status('학생 연결 오류: '+e.message,true)),e=>status('학생 목록 읽기 거부: '+e.message,true)));
+  teacherWatch.push(onChildRemoved(ref(db,roomPath('students')),snap=>removeTeacherStudent(snap.key)));
+  status('교실 개설 완료 · 학생에게 코드를 알려주세요.');
+ }catch(err){status('교실 생성 실패: '+err.message,true);room=''}
+}
+$('newRoom').addEventListener('click',startRoom);
+$('copyLink').addEventListener('click',async()=>{if(!room)return status('먼저 교실을 만드세요.',true);const url=new URL(location.href);url.searchParams.set('role','student');url.searchParams.set('room',room);try{await navigator.clipboard.writeText(url.href);status('학생용 주소를 복사했습니다.')}catch{status('주소 복사 실패: '+url.href,true)}});
+async function finishRoom(){
+ if(!room)return;
+ const old=room;unregister(teacherWatch);clearPeers();room='';
+ try{await set(ref(db,'rooms/'+old+'/meta/active'),false);await remove(ref(db,'rooms/'+old+'/students'));await remove(ref(db,'rooms/'+old+'/signals'))}catch(e){status('종료 처리 중 오류: '+e.message,true)}
+ $('roomCode').textContent='-------';$('counts').textContent='';status('교실을 종료했습니다.');
+}
+$('endRoom').addEventListener('click',finishRoom);
+function makeTile(uid,name){
+ const tile=document.createElement('article');tile.className='tile';
+ const video=document.createElement('video');video.autoplay=true;video.muted=true;video.playsInline=true;
+ const footer=document.createElement('div');footer.className='tilefooter';
+ const span=document.createElement('span');span.className='name';span.textContent=name;
+ const conn=document.createElement('span');conn.className='state';conn.textContent='연결 중';
+ footer.append(span,conn);tile.append(video,footer);
+ tile.addEventListener('click',()=>{selectedStudent=uid;updateLayout('1')});
+ tiles.set(uid,tile);render();return {tile,video,conn}
+}
+function applyCandidate(pc,queue,item,ready){
+ if(!item||!item.candidate)return;
+ if(ready())pc.addIceCandidate(item).catch(()=>{});else queue.push(item);
+}
+async function flush(pc,queue){while(queue.length)try{await pc.addIceCandidate(queue.shift())}catch{}}
+async function teacherStudentJoined(uid,entry){
+ if(peers.has(uid)||!room||!entry||!entry.sessionId)return;
+ const sid=entry.sessionId;
+ const path=roomPath('signals/'+uid);
+ await remove(ref(db,path)); // 지난 세션의 SDP/ICE 제거
+ if(!room)return;
+ const pc=new RTCPeerConnection({iceServers});
+ const queue=[],unsubs=[];
+ const ui=makeTile(uid,entry.name||'학생');peers.set(uid,{pc,unsubs,ui,sid});
+ pc.addTransceiver('video',{direction:'recvonly'});
+ pc.ontrack=e=>{ui.video.srcObject=e.streams[0];ui.video.play().catch(()=>{})};
+ pc.onconnectionstatechange=()=>{ui.conn.textContent=pc.connectionState==='connected'?'● 연결됨':pc.connectionState; if(pc.connectionState==='connected')diagnose(pc,ui.conn)};
+ pc.onicecandidate=e=>{if(e.candidate)push(ref(db,path+'/teacherCandidates'),{...e.candidate.toJSON(),sessionId:sid}).catch(()=>{})};
+ unsubs.push(onValue(ref(db,path+'/answer'),async snap=>{
+  const answer=snap.val();if(!answer||answer.sessionId!==sid||pc.remoteDescription)return;
+  try{await pc.setRemoteDescription({type:'answer',sdp:answer.sdp});await flush(pc,queue)}catch(e){ui.conn.textContent='응답 오류'}
+ }));
+ unsubs.push(onChildAdded(ref(db,path+'/studentCandidates'),snap=>{const c=snap.val();if(c?.sessionId===sid)applyCandidate(pc,queue,c,()=>!!pc.remoteDescription)}));
+ try{const offer=await pc.createOffer();await pc.setLocalDescription(offer);await set(ref(db,path+'/offer'),{type:'offer',sdp:pc.localDescription.sdp,sessionId:sid})}
+ catch(e){ui.conn.textContent='연결 실패';status('WebRTC 연결 실패: '+e.message,true)}
+}
+function removeTeacherStudent(uid){const item=peers.get(uid);if(item){unregister(item.unsubs);item.pc.close();peers.delete(uid)}tiles.delete(uid);if(selectedStudent===uid)selectedStudent='';render()}
+async function diagnose(pc,el){
+ try{
+  const stats=await pc.getStats();let pair=null;stats.forEach(s=>{if(s.type==='transport'&&s.selectedCandidatePairId)pair=stats.get(s.selectedCandidatePairId)});
+  if(!pair)stats.forEach(s=>{if(s.type==='candidate-pair'&&s.nominated&&s.state==='succeeded')pair=s});
+  if(pair){const local=stats.get(pair.localCandidateId),remote=stats.get(pair.remoteCandidateId);
+   const relay=local?.candidateType==='relay'||remote?.candidateType==='relay';el.textContent=relay?'TURN 중계':'직접 연결 추정';
+  }
+ }catch{}
+}
+$('joinRoom').value=(new URLSearchParams(location.search).get('room')||'').toUpperCase();
+$('studentName').value=localStorage.getItem('classroom-share-name')||'';
+async function startSharing(){
+ if(studentStream)return;
+ const inputCode=$('joinRoom').value.trim().toUpperCase();
+ const name=$('studentName').value.trim();
+ if(!/^[A-Z2-9]{7}$/.test(inputCode)||!name||name.length>20)return status('7자리 교실 코드와 이름(20자 이내)을 입력하세요.',true);
+ let stream=null;
+ try{
+  // 반드시 사용자가 직접 클릭한 이벤트 흐름에서 화면 선택창을 엽니다.
+  stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:4,width:{ideal:1280},height:{ideal:720}},audio:false});
+  const user=(await signInAnonymously(auth)).user;
+  const meta=(await get(ref(db,'rooms/'+inputCode+'/meta'))).val();
+  if(!meta?.active)throw new Error('교실이 없거나 종료되었습니다.');
+  room=inputCode;studentUid=user.uid;studentStream=stream;studentSession=crypto.randomUUID();
+  localStorage.setItem('classroom-share-name',name);
+  const pc=new RTCPeerConnection({iceServers});studentPC=pc;studentRemoteReady=false;studentCandidates=[];
+  pc.addTrack(stream.getVideoTracks()[0],stream);
+  pc.onicecandidate=e=>{if(e.candidate)push(ref(db,roomPath('signals/'+studentUid+'/studentCandidates')),{...e.candidate.toJSON(),sessionId:studentSession}).catch(()=>{})};
+  pc.onconnectionstatechange=()=>status('화면 공유 중 · '+(pc.connectionState==='connected'?'교사와 연결됨':pc.connectionState));
+  studentWatch.push(onValue(ref(db,roomPath('meta/active')),snap=>{if(snap.val()===false)stopSharing('수업이 종료되어 화면 공유를 중단했습니다.')}));
+  studentWatch.push(onValue(ref(db,roomPath('signals/'+studentUid+'/offer')),async snap=>{
+   const o=snap.val();if(!o||o.sessionId!==studentSession||studentRemoteReady)return;
+   try{
+    await pc.setRemoteDescription({type:'offer',sdp:o.sdp});studentRemoteReady=true;
+    await flush(pc,studentCandidates);const answer=await pc.createAnswer();await pc.setLocalDescription(answer);
+    await set(ref(db,roomPath('signals/'+studentUid+'/answer')),{type:'answer',sdp:pc.localDescription.sdp,sessionId:studentSession});
+   }catch(e){status('영상 연결 오류: '+e.message,true)}
+  }));
+  studentWatch.push(onChildAdded(ref(db,roomPath('signals/'+studentUid+'/teacherCandidates')),snap=>{const c=snap.val();if(c?.sessionId===studentSession)applyCandidate(pc,studentCandidates,c,()=>studentRemoteReady)}));
+  studentRef=ref(db,roomPath('students/'+studentUid));
+  await onDisconnect(studentRef).remove();
+  await set(studentRef,{name,joinedAt:Date.now(),sessionId:studentSession});
+  stream.getVideoTracks()[0].addEventListener('ended',()=>stopSharing('Chrome에서 화면 공유가 중지되었습니다.'),{once:true});
+  $('startShare').hidden=true;$('stopShare').hidden=false;$('shareNotice').hidden=false;document.body.classList.add('share-active');
+  status('화면 공유 중 · 학생 본인도 언제든 중지할 수 있습니다.');
+ }catch(e){
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  if(!studentStream)status('공유 시작 실패: '+e.message,true);
+  else await stopSharing('공유 시작 실패: '+e.message);
+ }
+}
+async function stopSharing(message='화면 공유를 중지했습니다.'){
+ const refToRemove=studentRef;studentRef=null;unregister(studentWatch);
+ const pc=studentPC;studentPC=null;if(pc)pc.close();
+ const stream=studentStream;studentStream=null;if(stream)stream.getTracks().forEach(t=>t.stop());
+ if(refToRemove)try{await remove(refToRemove)}catch{}
+ room='';studentUid='';studentSession='';studentRemoteReady=false;studentCandidates=[];
+ $('startShare').hidden=false;$('stopShare').hidden=true;$('shareNotice').hidden=true;document.body.classList.remove('share-active');status(message);
+}
+$('startShare').addEventListener('click',startSharing);
+$('stopShare').addEventListener('click',()=>stopSharing());
+window.addEventListener('pagehide',()=>{if(studentStream)studentStream.getTracks().forEach(t=>t.stop())});
+show(role);
+</script>
+</body>
+</html>
