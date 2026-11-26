@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>교실 화면 공유 v1.3</title>
+<title>교실 화면 공유 v1.4</title>
 <style>
 :root{color-scheme:dark;font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif}
 *{box-sizing:border-box}body{margin:0;background:#0b0e13;color:#f1f5f9}
@@ -34,6 +34,11 @@ button:focus-visible,input:focus-visible{outline:2px solid #93c5fd;outline-offse
 #trafficSummary{padding:10px 12px;background:#152235;border:1px solid #374763;border-radius:9px;margin:10px 0 12px;font-size:13px;color:#dbeafe;font-variant-numeric:tabular-nums}
 #trafficSummary strong{color:#93c5fd}
 #grid.mode1 .tilemetrics{font-size:15px;padding:10px 14px}
+#teacherRecovery{background:#1d2b3e;border:1px solid #64748b;border-radius:11px;padding:14px;margin-bottom:14px}
+#teacherRecovery input{max-width:240px}
+#savedStudentInfo{background:#164e40;color:#ecfdf5;padding:10px 12px;border-radius:9px;margin:12px 0}
+.retry{font-size:11px;padding:3px 6px;margin-left:auto;min-width:0}
+#grid.mode25 .retry{padding:2px 4px;font-size:10px}
 #grid.mode1 .tile{max-width:100%}
 #grid.mode1 video{max-height:calc(100vh - 235px)}
 [hidden]{display:none!important}.help{background:#0f2630;padding:12px;border-radius:8px;color:#cdebef;font-size:13px;line-height:1.6}
@@ -43,7 +48,7 @@ body.share-active .panel{background:white;color:#0f172a;border-color:#10b981}
 </style>
 </head>
 <body>
-<header><strong>🖥️ 교실 화면 공유 <small>v1.3 · 실시간 FPS·전송량 진단</small></strong>
+<header><strong>🖥️ 교실 화면 공유 <small>v1.4 · 고정 교실 · 자동 복구</small></strong>
 <div class="row"><span id="headerState" class="muted">연결 대기</span><button id="switchMode">교사 / 학생 전환</button></div></header>
 <main>
 <section id="teacherLogin" class="panel">
@@ -56,7 +61,13 @@ body.share-active .panel{background:white;color:#0f172a;border-color:#10b981}
 <section id="teacherMain" hidden>
 <div class="row space" style="margin-bottom:12px">
  <div><span class="muted">교실 코드 </span><span id="roomCode" class="code">-------</span><span id="counts" class="muted"></span></div>
- <div class="row"><button id="copyLink">학생 주소 복사</button><button id="newRoom" class="primary">새 교실</button><button id="endRoom" class="danger">전체 종료</button></div>
+ <div class="row"><button id="copyLink">학생 주소 복사</button><button id="newRoom" class="primary" hidden>새 고정 교실 만들기</button><button id="resetRoom" hidden>학년도 변경 · 코드 초기화</button><button id="endRoom" class="danger">전체 종료</button></div>
+</div>
+<div id="teacherRecovery" hidden>
+<strong>처음 한 번만 교실을 연결해 주세요.</strong>
+<p class="muted">기존 v1.3 교실 코드를 알고 있다면 입력하면 됩니다. 기존 학생들은 새 코드를 받을 필요가 없습니다.</p>
+<div class="row"><input id="adoptRoomCode" maxlength="7" placeholder="기존 7자리 교실 코드" aria-label="기존 교실 코드"><button id="adoptRoom">기존 교실 복구</button></div>
+<p class="muted">이전 코드가 없으면 오른쪽 위 [새 고정 교실 만들기]를 선택하세요.</p>
 </div>
 <div class="row" style="margin-bottom:12px">
  <button class="layout primary" data-mode="25">25분할</button><button class="layout" data-mode="4">4분할</button><button class="layout" data-mode="1">1명 확대</button>
@@ -68,8 +79,12 @@ body.share-active .panel{background:white;color:#0f172a;border-color:#10b981}
 </section>
 <section id="studentMain" class="panel" hidden>
 <h2>학생 화면 공유</h2>
+<div id="savedStudentInfo" hidden></div>
+<div class="row"><button id="editStudentInfo" type="button">교실 코드 · 이름 다시 입력</button></div>
+<div id="joinFields">
 <label for="joinRoom">교실 코드</label><input id="joinRoom" maxlength="12" spellcheck="false" placeholder="교실 코드 입력">
 <label for="studentName">이름</label><input id="studentName" maxlength="20" placeholder="이름 또는 시험용 별명">
+</div>
 <label for="captureFps">화면 움직임</label><select id="captureFps"><option value="auto" selected>자동 · 교사 화면에 따라 8/12/18fps</option><option value="4">수동 절약 · 최대 4fps</option><option value="12">수동 표준 · 최대 12fps</option><option value="18">수동 부드럽게 · 최대 18fps</option></select><p id="qualityState" class="muted" style="font-size:12px">자동 모드에서는 교사 보기 방식에 맞춰 전송합니다. 실제 fps는 기기 및 네트워크에 따라 달라집니다.</p><p><button id="startShare" class="good">화면 선택하고 공유 시작</button> <button id="stopShare" class="danger" hidden>공유 중지</button></p>
 <p id="shareNotice" class="help" hidden>● 내 화면 공유 중 · 선생님이 보고 있습니다. 공유 중지를 누르거나 Chrome의 공유 중지 버튼을 누르면 전송이 끝납니다.</p>
 <p class="help">화면 공유 선택창에서 ‘전체 화면’을 선택해야 다른 탭의 활동도 보입니다. Chrome이 매번 학생에게 공유 권한을 요청합니다. 영상은 데이터베이스에 저장하지 않습니다.</p>
@@ -78,8 +93,8 @@ body.share-active .panel{background:white;color:#0f172a;border-color:#10b981}
 </main>
 <script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js';
-import {getAuth, signInWithEmailAndPassword, signInAnonymously} from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js';
-import {getDatabase,ref,get,set,remove,push,onValue,onChildAdded,onChildRemoved,onDisconnect} from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-database.js';
+import {getAuth, signInWithEmailAndPassword, signInAnonymously,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js';
+import {getDatabase,ref,get,set,remove,push,onValue,onChildAdded,onChildChanged,onChildRemoved,onDisconnect} from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-database.js';
 const firebaseConfig={
  apiKey:'AIzaSyBpxlP69Zn_Xz5q2aJ5laG2yK3pTE0hXtQ',
  authDomain:'classroom-screen-share.firebaseapp.com',
@@ -97,14 +112,18 @@ let role=new URLSearchParams(location.search).get('role')==='student'?'student':
 let room='', teacherUid='', studentUid='',studentStream=null,studentPC=null,studentSession='',studentRef=null;
 let selectedStudent='', layout='25';
 let statsTimer=null,statsPolling=false;
-let teacherWatch=[], studentWatch=[], studentCandidates=[], studentRemoteReady=false;
+let teacherWatch=[],studentWatch=[],studentCandidates=[],studentRemoteReady=false;
+let studentOfferId='',lastTeacherPing=0,studentSafetyTimer=null;
+let teacherRoomStatus='idle';
+const repairCounts=new Map();
+const MAX_AUTOMATIC_REPAIRS=3;
 const peers=new Map(), tiles=new Map();
 function status(s,bad=false){$('status').textContent=s;$('status').className=bad?'error':''; $('headerState').textContent=s.slice(0,55);}
 function show(roleNow){role=roleNow;$('teacherLogin').hidden=role!=='teacher';$('teacherMain').hidden=true;$('studentMain').hidden=role!=='student';status('준비 완료');}
 function code(){let b=crypto.getRandomValues(new Uint8Array(7));return Array.from(b,v=>alphabet[v%alphabet.length]).join('')}
 function roomPath(s=''){return 'rooms/'+room+(s?'/'+s:'')}
 function unregister(list){for(const fn of list.splice(0))try{fn()}catch{}}
-function clearPeers(){for(const v of peers.values()){unregister(v.unsubs);v.pc.close()}peers.clear();tiles.clear();$('grid').replaceChildren();updateSummary()}
+function clearPeers(){for(const v of peers.values()){if(v.repairTimer)clearTimeout(v.repairTimer);unregister(v.unsubs);v.pc.close()}peers.clear();tiles.clear();$('grid').replaceChildren();updateSummary()}
 function visibleTiles(){
  let entries=Array.from(tiles.entries());
  if(layout==='1'){const found=entries.find(e=>e[0]===selectedStudent)||entries[0];return found?[found]:[]}
@@ -131,34 +150,114 @@ function render(){
 function updateLayout(l){layout=l;document.querySelectorAll('.layout').forEach(b=>b.classList.toggle('primary',b.dataset.mode===l));render()}
 document.querySelectorAll('.layout').forEach(b=>b.addEventListener('click',()=>updateLayout(b.dataset.mode)));
 $('switchMode').addEventListener('click',()=>{if(room||studentStream){status('먼저 공유/교실을 종료해 주세요.',true);return}const next=role==='teacher'?'student':'teacher';const url=new URL(location.href);url.searchParams.set('role',next);url.searchParams.delete('room');location.href=url.href});
-$('login').addEventListener('click',async()=>{
+async function authorizeTeacher(user){
+ if(!user||user.isAnonymous||teacherUid)return;
  try{
-  const user=(await signInWithEmailAndPassword(auth,$('email').value.trim(),$('password').value)).user;
   const isAdmin=(await get(ref(db,'admins/'+user.uid))).val()===true;
-  if(!isAdmin){status('로그인은 성공했지만 교사 권한이 없습니다. Firebase 데이터 /admins/'+user.uid+' 를 true로 등록하고 보안 규칙을 적용하세요.',true);return}
-  teacherUid=user.uid;$('teacherLogin').hidden=true;$('teacherMain').hidden=false;status('교사 인증 완료 · 새 교실을 눌러 주세요.');
- }catch(err){status('교사 로그인 오류: '+err.message,true)}
+  if(!isAdmin){status('교사 권한이 없습니다. Firebase admins/UID의 Boolean true를 확인해 주세요.',true);return}
+  teacherUid=user.uid;$('teacherLogin').hidden=true;$('teacherMain').hidden=false;
+  status('교사 인증 완료 · 기존 교실 조회 중');
+  await restoreTeacherRoom();
+ }catch(err){status('교사 인증·교실 복구 오류: '+err.message,true)}
+}
+$('login').addEventListener('click',async()=>{
+ try{const user=(await signInWithEmailAndPassword(auth,$('email').value.trim(),$('password').value)).user;await authorizeTeacher(user)}
+ catch(err){status('교사 로그인 오류: '+err.message,true)}
 });
-async function startRoom(){
+onAuthStateChanged(auth,user=>{if(role==='teacher'&&user&&!user.isAnonymous)authorizeTeacher(user).catch(console.warn)});
+function displayTeacherRoom(isActive){
+ $('teacherRecovery').hidden=isActive;
+ $('newRoom').hidden=isActive;
+ $('resetRoom').hidden=!isActive;
+}
+async function attachTeacherRoom(savedCode){
+ if(room===savedCode&&teacherWatch.length)return;
+ unregister(teacherWatch);stopStatsPolling();clearPeers();repairCounts.clear();
+ room=savedCode;selectedStudent='';$('roomCode').textContent=room;displayTeacherRoom(true);
+ updateLayout('25');startStatsPolling();
+ const studentsRef=ref(db,roomPath('students'));
+ teacherWatch.push(onChildAdded(studentsRef,snap=>teacherStudentJoined(snap.key,snap.val()).catch(e=>status('학생 연결 오류: '+e.message,true)),e=>status('학생 목록 접근 오류: '+e.message,true)));
+ teacherWatch.push(onChildChanged(studentsRef,snap=>{
+  const current=peers.get(snap.key);
+  if(current&&current.sid!==snap.val()?.sessionId){
+   removeTeacherStudent(snap.key);
+   teacherStudentJoined(snap.key,snap.val()).catch(e=>status('학생 재접속 오류: '+e.message,true));
+  }
+ }));
+ teacherWatch.push(onChildRemoved(studentsRef,snap=>removeTeacherStudent(snap.key)));
+ status('고정 교실 '+room+' 연결 완료 · 학생 화면 자동 복구를 시도합니다.');
+}
+async function restoreTeacherRoom(){
  if(!teacherUid)return;
- if(room)await finishRoom();
- room=code();
+ // 서버의 매핑을 사용하므로 다른 교사 PC로 로그인해도 같은 학급을 복원합니다.
+ let saved;
+ try{saved=(await get(ref(db,'teacherRooms/'+teacherUid))).val()}
+ catch(err){status('v1.4 Firebase 보안 규칙을 먼저 게시해 주세요: '+err.message,true);return}
+ if(saved){
+  const meta=(await get(ref(db,'rooms/'+saved+'/meta'))).val();
+  if(meta?.owner===teacherUid){
+   if(!meta.active)await set(ref(db,'rooms/'+saved+'/meta'),{...meta,active:true});
+   await attachTeacherRoom(saved);
+   return;
+  }
+  status('저장된 교실 정보가 일치하지 않습니다. 관리자 설정을 확인해 주세요.',true);return;
+ }
+ displayTeacherRoom(false);
+ status('처음 한 번 기존 교실 코드를 연결하거나 새 고정 교실을 만드세요.');
+}
+async function startRoom(){
+ if(!teacherUid||room)return;
  try{
-  await set(ref(db,roomPath('meta')),{owner:teacherUid,active:true,createdAt:Date.now()});
-  $('roomCode').textContent=room;selectedStudent='';updateLayout('25');
-  startStatsPolling();
-  teacherWatch.push(onChildAdded(ref(db,roomPath('students')),snap=>teacherStudentJoined(snap.key,snap.val()).catch(e=>status('학생 연결 오류: '+e.message,true)),e=>status('학생 목록 읽기 거부: '+e.message,true)));
-  teacherWatch.push(onChildRemoved(ref(db,roomPath('students')),snap=>removeTeacherStudent(snap.key)));
-  status('교실 개설 완료 · 학생에게 코드를 알려주세요.');
- }catch(err){status('교실 생성 실패: '+err.message,true);room=''}
+  let newCode='';
+  for(let n=0;n<6;n++){
+   const candidate=code();
+   if(!(await get(ref(db,'rooms/'+candidate+'/meta'))).exists()){newCode=candidate;break}
+  }
+  if(!newCode)throw Error('교실 코드를 생성하지 못했습니다.');
+  await set(ref(db,'rooms/'+newCode+'/meta'),{owner:teacherUid,active:true,createdAt:Date.now()});
+  await set(ref(db,'teacherRooms/'+teacherUid),newCode);
+  await attachTeacherRoom(newCode);
+ }catch(err){status('고정 교실 생성 오류: '+err.message,true)}
 }
 $('newRoom').addEventListener('click',startRoom);
+$('adoptRoom').addEventListener('click',async()=>{
+ const existing=$('adoptRoomCode').value.trim().toUpperCase();
+ if(!/^[A-Z2-9]{7}$/.test(existing))return status('기존 7자리 교실 코드를 정확히 입력하세요.',true);
+ try{
+  const meta=(await get(ref(db,'rooms/'+existing+'/meta'))).val();
+  if(!meta||meta.owner!==teacherUid)throw Error('본인이 소유한 기존 교실이 아닙니다.');
+  if(!meta.active)await set(ref(db,'rooms/'+existing+'/meta'),{...meta,active:true});
+  await set(ref(db,'teacherRooms/'+teacherUid),existing);
+  await attachTeacherRoom(existing);
+ }catch(err){status('기존 교실 연결 오류: '+err.message,true)}
+});
+$('resetRoom').addEventListener('click',async()=>{
+ if(!room||!teacherUid)return;
+ if(!confirm('학년도 변경/초기화를 진행하면 현재 교실의 공유가 모두 종료되고 새로운 코드가 발급됩니다. 계속할까요?'))return;
+ const old=room;
+ try{
+  await set(ref(db,roomPath('meta/active')),false);
+  await remove(ref(db,roomPath('students')));
+  await remove(ref(db,roomPath('signals')));
+  unregister(teacherWatch);stopStatsPolling();clearPeers();room='';$('roomCode').textContent='-------';
+  repairCounts.clear();await startRoom();
+  status('새 학년도용 교실 코드가 발급되었습니다. 학생들은 새 코드를 한 번 입력해야 합니다.');
+ }catch(err){status('교실 코드 초기화 오류: '+err.message,true)}
+});
 $('copyLink').addEventListener('click',async()=>{if(!room)return status('먼저 교실을 만드세요.',true);const url=new URL(location.href);url.searchParams.set('role','student');url.searchParams.set('room',room);try{await navigator.clipboard.writeText(url.href);status('학생용 주소를 복사했습니다.')}catch{status('주소 복사 실패: '+url.href,true)}});
 async function finishRoom(){
  if(!room)return;
- const old=room;stopStatsPolling();unregister(teacherWatch);clearPeers();room='';
- try{await set(ref(db,'rooms/'+old+'/meta/active'),false);await remove(ref(db,'rooms/'+old+'/students'));await remove(ref(db,'rooms/'+old+'/signals'))}catch(e){status('종료 처리 중 오류: '+e.message,true)}
- $('roomCode').textContent='-------';$('counts').textContent='';status('교실을 종료했습니다.');
+ const activeRoom=room;
+ try{
+  // 방 코드는 유지하고 현재 수업의 공유만 종료합니다.
+  await set(ref(db,roomPath('meta/active')),false);
+  await remove(ref(db,roomPath('students')));
+  await remove(ref(db,roomPath('signals')));
+  const meta=(await get(ref(db,'rooms/'+activeRoom+'/meta'))).val();
+  if(meta?.owner===teacherUid)await set(ref(db,roomPath('meta')),{...meta,active:true});
+  clearPeers();repairCounts.clear();
+  status('전체 공유 종료 완료 · 교실 코드 '+activeRoom+'는 유지됩니다.');
+ }catch(e){status('전체 종료 중 오류: '+e.message,true)}
 }
 $('endRoom').addEventListener('click',finishRoom);
 function makeTile(uid,name){
@@ -167,10 +266,12 @@ function makeTile(uid,name){
  const footer=document.createElement('div');footer.className='tilefooter';
  const span=document.createElement('span');span.className='name';span.textContent=name;
  const conn=document.createElement('span');conn.className='state';conn.textContent='연결 중';
+ const retry=document.createElement('button');retry.className='retry';retry.textContent='↻';retry.title='이 학생 영상 다시 연결';
+ retry.addEventListener('click',event=>{event.stopPropagation();requestRepair(uid,'수동 요청',true)});
  const metrics=document.createElement('div');metrics.className='tilemetrics';
  const rate=document.createElement('span');rate.className='rate';rate.textContent='FPS — · — Mbps';
  const route=document.createElement('span');route.textContent='경로 확인 중';
- metrics.append(rate,route);footer.append(span,conn);tile.append(video,footer,metrics);
+ metrics.append(rate,route);footer.append(span,conn,retry);tile.append(video,footer,metrics);
  tile.addEventListener('click',()=>{selectedStudent=uid;updateLayout('1')});
  tiles.set(uid,tile);render();return {tile,video,conn,rate,route}
 }
@@ -183,31 +284,72 @@ async function teacherStudentJoined(uid,entry){
  if(peers.has(uid)||!room||!entry||!entry.sessionId)return;
  const sid=entry.sessionId;
  const path=roomPath('signals/'+uid);
- await remove(ref(db,path)); // 지난 세션의 SDP/ICE 제거
+ await remove(ref(db,path)); // 이전 교사 PC의 SDP·후보 제거
  if(!room)return;
+ const offerId=crypto.randomUUID();
  const pc=new RTCPeerConnection({iceServers});
  const queue=[],unsubs=[];
  const control=pc.createDataChannel('teacher-quality'); // 영상 연결 자체로 작은 제어 명령을 전달
  const ui=makeTile(uid,entry.name||'학생');
- peers.set(uid,{pc,unsubs,ui,sid,control,lastFps:null,prevInbound:null,measurement:null});
- control.onopen=()=>updatePeerRates();
+ const record={pc,unsubs,ui,sid,offerId,control,lastFps:null,prevInbound:null,measurement:null,repairTimer:null,lastPongAt:0,connectedAt:0};
+ peers.set(uid,record);
+ control.onopen=()=>{record.lastPongAt=Date.now();updatePeerRates()};
+ control.onmessage=event=>{
+  try{const data=JSON.parse(event.data);if(data?.type==='pong')record.lastPongAt=Date.now()}
+  catch{}
+ };
  pc.addTransceiver('video',{direction:'recvonly'});
  pc.ontrack=e=>{ui.video.srcObject=e.streams[0];ui.video.play().catch(()=>{})};
  pc.onconnectionstatechange=()=>{
+  if(peers.get(uid)!==record)return;
   ui.conn.textContent=pc.connectionState==='connected'?'● 연결됨':pc.connectionState;
-  if(pc.connectionState==='connected'){samplePeer(uid,peers.get(uid)).then(updateSummary).catch(()=>{})}
-  else{const current=peers.get(uid);if(current){current.prevInbound=null;current.measurement=null}ui.rate.textContent='FPS — · — Mbps';ui.route.textContent='경로 확인 중';updateSummary()}
+  if(pc.connectionState==='connected'){
+   record.connectedAt=Date.now();if(record.repairTimer){clearTimeout(record.repairTimer);record.repairTimer=null}
+   samplePeer(uid,record).then(updateSummary).catch(()=>{});
+  }else{
+   record.prevInbound=null;record.measurement=null;
+   ui.rate.textContent='FPS — · — Mbps';ui.route.textContent='경로 확인 중';updateSummary();
+   if(pc.connectionState==='failed')requestRepair(uid,'연결 실패');
+   if(pc.connectionState==='disconnected')requestRepair(uid,'연결 끊김');
+  }
  };
- pc.onicecandidate=e=>{if(e.candidate)push(ref(db,path+'/teacherCandidates'),{...e.candidate.toJSON(),sessionId:sid}).catch(()=>{})};
+ pc.onicecandidate=e=>{if(e.candidate)push(ref(db,path+'/teacherCandidates'),{...e.candidate.toJSON(),sessionId:sid,offerId}).catch(()=>{})};
  unsubs.push(onValue(ref(db,path+'/answer'),async snap=>{
-  const answer=snap.val();if(!answer||answer.sessionId!==sid||pc.remoteDescription)return;
+  const answer=snap.val();if(!answer||answer.sessionId!==sid||answer.offerId!==offerId||pc.remoteDescription)return;
   try{await pc.setRemoteDescription({type:'answer',sdp:answer.sdp});await flush(pc,queue)}catch(e){ui.conn.textContent='응답 오류'}
  }));
- unsubs.push(onChildAdded(ref(db,path+'/studentCandidates'),snap=>{const c=snap.val();if(c?.sessionId===sid)applyCandidate(pc,queue,c,()=>!!pc.remoteDescription)}));
- try{const offer=await pc.createOffer();await pc.setLocalDescription(offer);await set(ref(db,path+'/offer'),{type:'offer',sdp:pc.localDescription.sdp,sessionId:sid})}
+ unsubs.push(onChildAdded(ref(db,path+'/studentCandidates'),snap=>{const c=snap.val();if(c?.sessionId===sid&&c?.offerId===offerId)applyCandidate(pc,queue,c,()=>!!pc.remoteDescription)}));
+ try{const offer=await pc.createOffer();await pc.setLocalDescription(offer);await set(ref(db,path+'/offer'),{type:'offer',sdp:pc.localDescription.sdp,sessionId:sid,offerId})}
  catch(e){ui.conn.textContent='연결 실패';status('WebRTC 연결 실패: '+e.message,true)}
 }
-function removeTeacherStudent(uid){const item=peers.get(uid);if(item){unregister(item.unsubs);item.pc.close();peers.delete(uid)}tiles.delete(uid);if(selectedStudent===uid)selectedStudent='';render();updateSummary()}
+function removeTeacherStudent(uid){
+ const item=peers.get(uid);
+ if(item){if(item.repairTimer)clearTimeout(item.repairTimer);unregister(item.unsubs);item.pc.close();peers.delete(uid)}
+ tiles.delete(uid);if(selectedStudent===uid)selectedStudent='';render();updateSummary();
+}
+function requestRepair(uid,reason,manual=false){
+ const item=peers.get(uid);if(!item||item.repairTimer||!room)return;
+ const count=repairCounts.get(uid)||0;
+ if(!manual&&count>=MAX_AUTOMATIC_REPAIRS){
+  item.ui.conn.textContent='재연결 실패 · ↻ 재시도';
+  return;
+ }
+ const wait=manual?0:reason==='연결 끊김'?12000:5000;
+ item.ui.conn.textContent='재연결 대기 · '+reason;
+ item.repairTimer=setTimeout(async()=>{
+  item.repairTimer=null;
+  if(peers.get(uid)!==item||!room)return;
+  if(!manual&&item.pc.connectionState==='connected'&&item.control.readyState==='open'&&Date.now()-item.lastPongAt<20000)return;
+  try{
+   const current=(await get(ref(db,roomPath('students/'+uid)))).val();
+   if(!current||current.sessionId!==item.sid){removeTeacherStudent(uid);return}
+   repairCounts.set(uid,manual?0:count+1);
+   removeTeacherStudent(uid);
+   await teacherStudentJoined(uid,current);
+   status('학생 영상 재연결 시도 '+(manual?'수동':(count+1)+'/'+MAX_AUTOMATIC_REPAIRS)+' · '+reason);
+  }catch(e){status('재연결 오류: '+e.message,true)}
+ },wait);
+}
 // 수신 통계는 교사 브라우저 안에서만 측정합니다. Firebase에 업로드하지 않습니다.
 function connectionRoute(report){
  let pair=null;
@@ -291,6 +433,16 @@ async function pollAllStats(){
  try{
   const entries=Array.from(peers.entries());
   await Promise.all(entries.map(([uid,item])=>samplePeer(uid,item).catch(err=>console.warn('통계 측정 실패',uid,err))));
+  for(const [uid,item] of entries){
+   if(item.control.readyState==='open'){
+    try{item.control.send(JSON.stringify({type:'ping'}))}catch{}
+    if(item.lastPongAt&&Date.now()-item.lastPongAt>25000)requestRepair(uid,'응답 없음');
+    const metric=item.measurement;
+    if(metric&&metric.mbps!==null&&metric.mbps<0.01&&metric.fps!==null&&metric.fps<0.5&&Date.now()-item.lastPongAt<12000){
+     item.ui.conn.textContent='● 연결됨 · 정지 화면 가능';
+    }
+   }
+  }
   updateSummary();
  }finally{statsPolling=false}
 }
@@ -326,8 +478,18 @@ function scheduleQualityChange(fps){
   $('qualityState').textContent=changed?'교사 보기 모드에 맞춰 최대 '+fps+'fps를 목표로 전송 중입니다.':'기기에서 자동 프레임률 변경이 지원되지 않을 수 있습니다.';
  });
 }
-$('joinRoom').value=(new URLSearchParams(location.search).get('room')||'').toUpperCase();
+function showStudentIdentity(edit=false){
+ const cachedName=$('studentName').value.trim();
+ const cachedCode=$('joinRoom').value.trim();
+ const saved=!!cachedName&&!!cachedCode;
+ $('savedStudentInfo').hidden=!saved||edit;
+ $('joinFields').hidden=saved&&!edit;
+ $('savedStudentInfo').textContent='저장된 교실: '+cachedCode+' · 이름: '+cachedName+' (화면 공유는 직접 승인해야 합니다)';
+}
+$('joinRoom').value=(new URLSearchParams(location.search).get('room')||localStorage.getItem('classroom-share-room')||'').toUpperCase();
 $('studentName').value=localStorage.getItem('classroom-share-name')||'';
+showStudentIdentity();
+$('editStudentInfo').addEventListener('click',()=>showStudentIdentity(true));
 async function startSharing(){
  if(studentStream)return;
  const inputCode=$('joinRoom').value.trim().toUpperCase();
@@ -343,47 +505,68 @@ async function startSharing(){
   if(!meta?.active)throw new Error('교실이 없거나 종료되었습니다.');
   room=inputCode;studentUid=user.uid;studentStream=stream;studentSession=crypto.randomUUID();
   localStorage.setItem('classroom-share-name',name);
-  const pc=new RTCPeerConnection({iceServers});studentPC=pc;studentRemoteReady=false;studentCandidates=[];
+  localStorage.setItem('classroom-share-room',inputCode);
+  showStudentIdentity();lastTeacherPing=Date.now();
+  const pc=new RTCPeerConnection({iceServers});studentPC=pc;studentRemoteReady=false;studentOfferId='';studentCandidates=[];
   pc.addTrack(stream.getVideoTracks()[0],stream);
   pc.ondatachannel=event=>{
    if(event.channel.label!=='teacher-quality')return;
    event.channel.onmessage=message=>{
     let data;try{data=JSON.parse(message.data)}catch{return}
+    if(data?.type==='ping'){
+     lastTeacherPing=Date.now();
+     if(event.channel.readyState==='open')try{event.channel.send(JSON.stringify({type:'pong'}))}catch{}
+    }
     if(data?.type==='target-fps'&&[8,12,18].includes(data.fps)&&$('captureFps').value==='auto'){
      scheduleQualityChange(data.fps);
     }
    };
   };
-  pc.onicecandidate=e=>{if(e.candidate)push(ref(db,roomPath('signals/'+studentUid+'/studentCandidates')),{...e.candidate.toJSON(),sessionId:studentSession}).catch(()=>{})};
+  pc.onicecandidate=e=>{if(e.candidate&&studentOfferId)push(ref(db,roomPath('signals/'+studentUid+'/studentCandidates')),{...e.candidate.toJSON(),sessionId:studentSession,offerId:studentOfferId}).catch(()=>{})};
   pc.onconnectionstatechange=()=>status('화면 공유 중 · '+(pc.connectionState==='connected'?'교사와 연결됨':pc.connectionState));
   studentWatch.push(onValue(ref(db,roomPath('meta/active')),snap=>{if(snap.val()===false)stopSharing('수업이 종료되어 화면 공유를 중단했습니다.')}));
   studentWatch.push(onValue(ref(db,roomPath('signals/'+studentUid+'/offer')),async snap=>{
-   const o=snap.val();if(!o||o.sessionId!==studentSession||studentRemoteReady)return;
+   const o=snap.val();if(!o||o.sessionId!==studentSession||!o.offerId||studentOfferId===o.offerId)return;
    try{
+    studentRemoteReady=false;studentOfferId=o.offerId;
+    // 교사가 새로고침했더라도 기존 화면 캡처 트랙을 보존하고 새 제안에 응답합니다.
     await pc.setRemoteDescription({type:'offer',sdp:o.sdp});studentRemoteReady=true;
-    await flush(pc,studentCandidates);const answer=await pc.createAnswer();await pc.setLocalDescription(answer);
-    await set(ref(db,roomPath('signals/'+studentUid+'/answer')),{type:'answer',sdp:pc.localDescription.sdp,sessionId:studentSession});
-   }catch(e){status('영상 연결 오류: '+e.message,true)}
+    await flush(pc,studentCandidates.filter(c=>c.offerId===o.offerId));studentCandidates=[];
+    const answer=await pc.createAnswer();await pc.setLocalDescription(answer);
+    await set(ref(db,roomPath('signals/'+studentUid+'/answer')),{type:'answer',sdp:pc.localDescription.sdp,sessionId:studentSession,offerId:o.offerId});
+   }catch(e){status('영상 재협상 오류: '+e.message,true)}
   }));
-  studentWatch.push(onChildAdded(ref(db,roomPath('signals/'+studentUid+'/teacherCandidates')),snap=>{const c=snap.val();if(c?.sessionId===studentSession)applyCandidate(pc,studentCandidates,c,()=>studentRemoteReady)}));
+  studentWatch.push(onChildAdded(ref(db,roomPath('signals/'+studentUid+'/teacherCandidates')),snap=>{
+   const c=snap.val();if(c?.sessionId!==studentSession)return;
+   if(!studentRemoteReady||!studentOfferId){studentCandidates.push(c);return}
+   if(c.offerId===studentOfferId)pc.addIceCandidate(c).catch(()=>{});
+  }));
   studentRef=ref(db,roomPath('students/'+studentUid));
   await onDisconnect(studentRef).remove();
   await set(studentRef,{name,joinedAt:Date.now(),sessionId:studentSession});
   stream.getVideoTracks()[0].addEventListener('ended',()=>stopSharing('Chrome에서 화면 공유가 중지되었습니다.'),{once:true});
+  if(studentSafetyTimer)clearInterval(studentSafetyTimer);
+  studentSafetyTimer=setInterval(()=>{
+   if(studentStream&&Date.now()-lastTeacherPing>120000){
+    stopSharing('교사 연결이 2분간 확인되지 않아 안전을 위해 화면 공유를 중단했습니다.').catch(console.warn);
+   }
+  },10000);
   $('startShare').hidden=true;$('stopShare').hidden=false;$('shareNotice').hidden=false;$('captureFps').disabled=true;document.body.classList.add('share-active');
   status('화면 공유 중 · 학생 본인도 언제든 중지할 수 있습니다.');
  }catch(e){
   if(stream)stream.getTracks().forEach(t=>t.stop());
+  showStudentIdentity(true);
   if(!studentStream)status('공유 시작 실패: '+e.message,true);
   else await stopSharing('공유 시작 실패: '+e.message);
  }
 }
 async function stopSharing(message='화면 공유를 중지했습니다.'){
+ if(studentSafetyTimer){clearInterval(studentSafetyTimer);studentSafetyTimer=null}
  const refToRemove=studentRef;studentRef=null;unregister(studentWatch);
  const pc=studentPC;studentPC=null;if(pc)pc.close();
  const stream=studentStream;studentStream=null;if(stream)stream.getTracks().forEach(t=>t.stop());
  if(refToRemove)try{await remove(refToRemove)}catch{}
- room='';studentUid='';studentSession='';studentRemoteReady=false;studentCandidates=[];
+ room='';studentUid='';studentSession='';studentRemoteReady=false;studentOfferId='';studentCandidates=[];
  $('startShare').hidden=false;$('stopShare').hidden=true;$('shareNotice').hidden=true;$('captureFps').disabled=false;$('qualityState').textContent='자동 모드에서는 교사 화면에 따라 최대 8/12/18fps를 목표로 전송합니다.';document.body.classList.remove('share-active');status(message);
 }
 $('startShare').addEventListener('click',startSharing);
