@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>교실 화면 공유 v1.1</title>
+<title>교실 화면 공유 v1.2</title>
 <style>
 :root{color-scheme:dark;font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif}
 *{box-sizing:border-box}body{margin:0;background:#0b0e13;color:#f1f5f9}
@@ -38,7 +38,7 @@ body.share-active .panel{background:white;color:#0f172a;border-color:#10b981}
 </style>
 </head>
 <body>
-<header><strong>🖥️ 교실 화면 공유 <small>v1.1 · 프레임률 개선 시험</small></strong>
+<header><strong>🖥️ 교실 화면 공유 <small>v1.2 · 화면별 자동 프레임률</small></strong>
 <div class="row"><span id="headerState" class="muted">연결 대기</span><button id="switchMode">교사 / 학생 전환</button></div></header>
 <main>
 <section id="teacherLogin" class="panel">
@@ -55,7 +55,7 @@ body.share-active .panel{background:white;color:#0f172a;border-color:#10b981}
 </div>
 <div class="row" style="margin-bottom:12px">
  <button class="layout primary" data-mode="25">25분할</button><button class="layout" data-mode="4">4분할</button><button class="layout" data-mode="1">1명 확대</button>
- <span class="muted">학생 화면을 클릭하면 1명 확대</span>
+ <span class="muted">자동 전송 목표: 25분할 8fps / 4분할 12fps / 1명 확대 18fps</span>
 </div>
 <div id="grid"></div><p class="muted" id="diagnostic">WebRTC 직접 연결 시험 · TURN 서버를 사용하지 않습니다.</p>
 </section>
@@ -63,7 +63,7 @@ body.share-active .panel{background:white;color:#0f172a;border-color:#10b981}
 <h2>학생 화면 공유</h2>
 <label for="joinRoom">교실 코드</label><input id="joinRoom" maxlength="12" spellcheck="false" placeholder="교실 코드 입력">
 <label for="studentName">이름</label><input id="studentName" maxlength="20" placeholder="이름 또는 시험용 별명">
-<label for="captureFps">화면 움직임 (공유 시작 전에 선택)</label><select id="captureFps"><option value="4">절약 · 최대 4fps (느리지만 네트워크 절약)</option><option value="12" selected>표준 · 최대 12fps (추천)</option><option value="18">부드럽게 · 최대 18fps (1~4명 시험용)</option></select><p class="muted" style="font-size:12px">실제 프레임률은 크롬북 성능과 학교 와이파이 상태에 따라 달라집니다. 20명 이상 시험할 때는 표준 또는 절약을 권장합니다.</p><p><button id="startShare" class="good">화면 선택하고 공유 시작</button> <button id="stopShare" class="danger" hidden>공유 중지</button></p>
+<label for="captureFps">화면 움직임</label><select id="captureFps"><option value="auto" selected>자동 · 교사 화면에 따라 8/12/18fps</option><option value="4">수동 절약 · 최대 4fps</option><option value="12">수동 표준 · 최대 12fps</option><option value="18">수동 부드럽게 · 최대 18fps</option></select><p id="qualityState" class="muted" style="font-size:12px">자동 모드에서는 교사 보기 방식에 맞춰 전송합니다. 실제 fps는 기기 및 네트워크에 따라 달라집니다.</p><p><button id="startShare" class="good">화면 선택하고 공유 시작</button> <button id="stopShare" class="danger" hidden>공유 중지</button></p>
 <p id="shareNotice" class="help" hidden>● 내 화면 공유 중 · 선생님이 보고 있습니다. 공유 중지를 누르거나 Chrome의 공유 중지 버튼을 누르면 전송이 끝납니다.</p>
 <p class="help">화면 공유 선택창에서 ‘전체 화면’을 선택해야 다른 탭의 활동도 보입니다. Chrome이 매번 학생에게 공유 권한을 요청합니다. 영상은 데이터베이스에 저장하지 않습니다.</p>
 </section>
@@ -97,10 +97,29 @@ function code(){let b=crypto.getRandomValues(new Uint8Array(7));return Array.fro
 function roomPath(s=''){return 'rooms/'+room+(s?'/'+s:'')}
 function unregister(list){for(const fn of list.splice(0))try{fn()}catch{}}
 function clearPeers(){for(const v of peers.values()){unregister(v.unsubs);v.pc.close()}peers.clear();tiles.clear();$('grid').replaceChildren()}
-function render(){let entries=Array.from(tiles.entries());if(layout==='1'){let x=entries.find(e=>e[0]===selectedStudent)||entries[0];entries=x?[x]:[]}
-if(layout==='4'){const pos=entries.findIndex(e=>e[0]===selectedStudent);if(pos>=4){entries=[entries[pos],...entries.filter((e,i)=>i!==pos).slice(0,3)]}else entries=entries.slice(0,4)}
-$('grid').className=layout==='25'?'':'mode'+layout;
-$('grid').replaceChildren(...entries.map(e=>e[1]));$('counts').textContent=' · '+tiles.size+'명 접속'}
+function visibleTiles(){
+ let entries=Array.from(tiles.entries());
+ if(layout==='1'){const found=entries.find(e=>e[0]===selectedStudent)||entries[0];return found?[found]:[]}
+ if(layout==='4'){const pos=entries.findIndex(e=>e[0]===selectedStudent);return pos>=4?[entries[pos],...entries.filter((e,i)=>i!==pos).slice(0,3)]:entries.slice(0,4)}
+ return entries;
+}
+function updatePeerRates(){
+ const showing=new Set(visibleTiles().map(([uid])=>uid));
+ for(const [uid,item] of peers){
+  if(item.control?.readyState!=='open')continue;
+  const fps=layout==='25'?8:layout==='4'?(showing.has(uid)?12:8):(showing.has(uid)?18:8);
+  if(item.lastFps===fps)continue;
+  try{item.control.send(JSON.stringify({type:'target-fps',fps}));item.lastFps=fps}
+  catch(e){console.warn('전송 품질 명령 실패',e)}
+ }
+}
+function render(){
+ const entries=visibleTiles();
+ $('grid').className=layout==='25'?'':'mode'+layout;
+ $('grid').replaceChildren(...entries.map(e=>e[1]));
+ $('counts').textContent=' · '+tiles.size+'명 접속';
+ updatePeerRates();
+}
 function updateLayout(l){layout=l;document.querySelectorAll('.layout').forEach(b=>b.classList.toggle('primary',b.dataset.mode===l));render()}
 document.querySelectorAll('.layout').forEach(b=>b.addEventListener('click',()=>updateLayout(b.dataset.mode)));
 $('switchMode').addEventListener('click',()=>{if(room||studentStream){status('먼저 공유/교실을 종료해 주세요.',true);return}const next=role==='teacher'?'student':'teacher';const url=new URL(location.href);url.searchParams.set('role',next);url.searchParams.delete('room');location.href=url.href});
@@ -156,7 +175,10 @@ async function teacherStudentJoined(uid,entry){
  if(!room)return;
  const pc=new RTCPeerConnection({iceServers});
  const queue=[],unsubs=[];
- const ui=makeTile(uid,entry.name||'학생');peers.set(uid,{pc,unsubs,ui,sid});
+ const control=pc.createDataChannel('teacher-quality'); // 영상 연결 자체로 작은 제어 명령을 전달
+ const ui=makeTile(uid,entry.name||'학생');
+ peers.set(uid,{pc,unsubs,ui,sid,control,lastFps:null});
+ control.onopen=()=>updatePeerRates();
  pc.addTransceiver('video',{direction:'recvonly'});
  pc.ontrack=e=>{ui.video.srcObject=e.streams[0];ui.video.play().catch(()=>{})};
  pc.onconnectionstatechange=()=>{ui.conn.textContent=pc.connectionState==='connected'?'● 연결됨':pc.connectionState; if(pc.connectionState==='connected')diagnose(pc,ui.conn)};
@@ -179,6 +201,26 @@ async function diagnose(pc,el){
   }
  }catch{}
 }
+let qualityChange=Promise.resolve();
+function scheduleQualityChange(fps){
+ qualityChange=qualityChange.catch(()=>{}).then(async()=>{
+  const track=studentStream?.getVideoTracks()[0];
+  const pc=studentPC;
+  if(!track||track.readyState!=='live'||!pc)return;
+  let changed=false;
+  try{await track.applyConstraints({frameRate:{ideal:fps,max:fps}});changed=true}
+  catch(e){console.warn('화면 캡처 프레임률 변경 실패',e)}
+  const sender=pc.getSenders().find(s=>s.track===track);
+  if(sender){
+   try{
+    const params=sender.getParameters();
+    if(params.encodings?.length){params.encodings[0].maxFramerate=fps;await sender.setParameters(params);changed=true}
+   }catch(e){console.warn('WebRTC 송신 프레임률 변경 실패',e)}
+  }
+  if(pc!==studentPC||track!==studentStream?.getVideoTracks()[0])return;
+  $('qualityState').textContent=changed?'교사 보기 모드에 맞춰 최대 '+fps+'fps를 목표로 전송 중입니다.':'기기에서 자동 프레임률 변경이 지원되지 않을 수 있습니다.';
+ });
+}
 $('joinRoom').value=(new URLSearchParams(location.search).get('room')||'').toUpperCase();
 $('studentName').value=localStorage.getItem('classroom-share-name')||'';
 async function startSharing(){
@@ -189,7 +231,7 @@ async function startSharing(){
  let stream=null;
  try{
   // 반드시 사용자가 직접 클릭한 이벤트 흐름에서 화면 선택창을 엽니다.
-  const targetFps=Number($('captureFps').value)||12;
+  const targetFps=$('captureFps').value==='auto'?18:(Number($('captureFps').value)||12);
   stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:targetFps,max:targetFps},width:{ideal:1280},height:{ideal:720}},audio:false});
   const user=(await signInAnonymously(auth)).user;
   const meta=(await get(ref(db,'rooms/'+inputCode+'/meta'))).val();
@@ -198,6 +240,15 @@ async function startSharing(){
   localStorage.setItem('classroom-share-name',name);
   const pc=new RTCPeerConnection({iceServers});studentPC=pc;studentRemoteReady=false;studentCandidates=[];
   pc.addTrack(stream.getVideoTracks()[0],stream);
+  pc.ondatachannel=event=>{
+   if(event.channel.label!=='teacher-quality')return;
+   event.channel.onmessage=message=>{
+    let data;try{data=JSON.parse(message.data)}catch{return}
+    if(data?.type==='target-fps'&&[8,12,18].includes(data.fps)&&$('captureFps').value==='auto'){
+     scheduleQualityChange(data.fps);
+    }
+   };
+  };
   pc.onicecandidate=e=>{if(e.candidate)push(ref(db,roomPath('signals/'+studentUid+'/studentCandidates')),{...e.candidate.toJSON(),sessionId:studentSession}).catch(()=>{})};
   pc.onconnectionstatechange=()=>status('화면 공유 중 · '+(pc.connectionState==='connected'?'교사와 연결됨':pc.connectionState));
   studentWatch.push(onValue(ref(db,roomPath('meta/active')),snap=>{if(snap.val()===false)stopSharing('수업이 종료되어 화면 공유를 중단했습니다.')}));
@@ -228,7 +279,7 @@ async function stopSharing(message='화면 공유를 중지했습니다.'){
  const stream=studentStream;studentStream=null;if(stream)stream.getTracks().forEach(t=>t.stop());
  if(refToRemove)try{await remove(refToRemove)}catch{}
  room='';studentUid='';studentSession='';studentRemoteReady=false;studentCandidates=[];
- $('startShare').hidden=false;$('stopShare').hidden=true;$('shareNotice').hidden=true;$('captureFps').disabled=false;document.body.classList.remove('share-active');status(message);
+ $('startShare').hidden=false;$('stopShare').hidden=true;$('shareNotice').hidden=true;$('captureFps').disabled=false;$('qualityState').textContent='자동 모드에서는 교사 화면에 따라 최대 8/12/18fps를 목표로 전송합니다.';document.body.classList.remove('share-active');status(message);
 }
 $('startShare').addEventListener('click',startSharing);
 $('stopShare').addEventListener('click',()=>stopSharing());
